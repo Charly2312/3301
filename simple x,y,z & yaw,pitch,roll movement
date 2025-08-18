@@ -1,0 +1,47 @@
+using System.Diagnostics;
+using UnityEngine;
+
+public class SimpleMovement : MonoBehaviour
+{
+    public float moveSpeed = 0.1f;
+    public float rotationSpeed = 10f;
+
+    void Update()
+    {
+        // --- Position movement ---
+        float moveX = 0f;
+        float moveZ = 0f;
+        float moveY = 0f;
+
+        if (Input.GetKey(KeyCode.A)) moveX = -0.1f;   // Left
+        if (Input.GetKey(KeyCode.D)) moveX = 0.1f;    // Right
+        if (Input.GetKey(KeyCode.W)) moveZ = 0.1f;    // Forward
+        if (Input.GetKey(KeyCode.S)) moveZ = -0.1f;   // Backward
+        if (Input.GetKey(KeyCode.E)) moveY = 0.1f;    // Up
+        if (Input.GetKey(KeyCode.Q)) moveY = -0.1f;   // Down
+
+        Vector3 move = new Vector3(moveX, moveY, moveZ);
+        transform.Translate(move * moveSpeed * Time.deltaTime, Space.World);
+
+        // --- Rotation ---
+        float yaw = 0f, pitch = 0f, roll = 0f;
+
+        if (Input.GetKey(KeyCode.J)) yaw = -1f;     // Yaw left
+        if (Input.GetKey(KeyCode.L)) yaw = 1f;      // Yaw right
+        if (Input.GetKey(KeyCode.I)) pitch = -1f;   // Pitch up
+        if (Input.GetKey(KeyCode.K)) pitch = 1f;    // Pitch down
+        if (Input.GetKey(KeyCode.U)) roll = -1f;    // Roll left
+        if (Input.GetKey(KeyCode.O)) roll = 1f;     // Roll right
+
+        Vector3 rotation = new Vector3(pitch, yaw, roll);
+        transform.Rotate(rotation * rotationSpeed * Time.deltaTime, Space.Self);
+    }
+
+    private void onCollisionEnter(Collision collision)
+    {
+        if (collision.gameObject.CompareTag("Skin"))
+        {
+            Debug.Log("Knife hits the skin!");
+        }
+    }
+}
