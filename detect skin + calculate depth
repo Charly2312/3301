@@ -73,6 +73,7 @@ public class SimpleMovement : MonoBehaviour
     bool ignored = false;
     bool collisionIgnored;
     string lastFlag = "";
+    private Vector3 lastTipPos;
 
     void Awake()
     {
@@ -87,6 +88,9 @@ public class SimpleMovement : MonoBehaviour
 
     void Start()
     {
+        // in Start()
+        if (!KnifeTip) KnifeTip = transform;
+        lastTipPos = KnifeTip.position;
         originPos = transform.position;
         originRot = transform.rotation;
         lastPos = transform.position;
@@ -392,8 +396,12 @@ public class SimpleMovement : MonoBehaviour
     // --- Signed distance helpers (Plane defined by Skin.up through Skin.position) ---
     float SignedToPlane()
     {
-        Plane pl = new Plane(skinTf.up, skinTf.position);
-        return pl.GetDistanceToPoint(KnifeTip.position); // + above, - below the plane
+        //Plane pl = new Plane(skinTf.up, skinTf.position);
+        //return pl.GetDistanceToPoint(KnifeTip.position); // + above, - below the plane
+        // point *on* the surface plane in world coords
+        Vector3 planePoint = skinTf.TransformPoint(new Vector3(0f, skinTopLocalY, 0f));
+        Plane pl = new Plane(skinTf.up, planePoint);
+        return pl.GetDistanceToPoint(KnifeTip ? KnifeTip.position : transform.position); // + above, - below
     }
     float DepthBelowPlane()
     {
@@ -415,53 +423,47 @@ public class SimpleMovement : MonoBehaviour
         //serialMove();
         manualMove();
         // depth and approach
+        // Tip-based depth/velocity
         float signed = SignedToPlane();
         float depth = Mathf.Max(0f, -signed);
 
-        // pressing speed into the plane
-        Vector3 v = (rb.position - lastPos) / Mathf.Max(Time.deltaTime, 1e-6f);
-        lastPos = rb.position;
-        float pressSpeed = Mathf.Max(0f, Vector3.Dot(v, -skinTf.up));
+        Vector3 vTip = (KnifeTip.position - lastTipPos) / Mathf.Max(Time.deltaTime, 1e-6f);
+        lastTipPos = KnifeTip.position;
+        float pressSpeed = Mathf.Max(0f, Vector3.Dot(vTip, -skinTf.up));
 
-        bool nearSurfaceAndPressing = (signed >= 0f && signed <= contactEps && pressSpeed > minPressSpd);
-        bool inside = depth > insideEps;
+        // Consider a tiny band around the surface and the "inside" state
+        bool tipInside = (signed < 0f); // as soon as the tip crosses the plane
+        bool nearSurfaceAndPressing = (signed >= -contactEps && signed <= contactEps && pressSpeed > minPressSpd);
 
-        if (!cutting && (inside || nearSurfaceAndPressing))
+        if (!cutting && (TipInsideMesh() || nearSurfaceAndPressing))
         {
-            // start cutting: freeze orientation and allow entry if collider is solid
             cutting = true;
             rb.constraints = RigidbodyConstraints.FreezeRotation;
-
             if (skinMesh && !skinMesh.isTrigger && !ignored && knifeCol)
             {
-                Physics.IgnoreCollision(knifeCol, skinMesh, true);
+                Physics.IgnoreCollision(knifeCol, skinMesh, true); // let blade pass through
                 ignored = true;
             }
-
             Debug.Log("cutting skin");
             TrySend($"cutting,{depth:F4}");
         }
-        else if (cutting && !inside && !nearSurfaceAndPressing)
+        else if (cutting && !TipInsideMesh() && !nearSurfaceAndPressing)
         {
-            // left the skin: restore
             cutting = false;
             rb.constraints = RigidbodyConstraints.None;
-
             if (ignored && skinMesh && knifeCol)
             {
                 Physics.IgnoreCollision(knifeCol, skinMesh, false);
                 ignored = false;
             }
-
             Debug.Log("out of skin");
             TrySend($"out,{depth:F4}");
         }
         else
         {
-            // continuous telemetry while debugging
             Debug.Log((cutting ? "cutting skin" : "out of skin") + $" depth={depth * 1000f:F1} mm");
         }
-        Debug.DrawRay(skinTf.position, skinTf.up * 0.25f, Color.green); // plane normal
+
 
         // paint the wound if the tip is touching the skin
         //PaintCutIfTouching();
@@ -475,6 +477,31 @@ public class SimpleMovement : MonoBehaviour
         //    EvaluateCuttingForce(velocity, contactNormal);
         //}
     }
+
+    bool TipInsideMesh()
+    {
+        // If the closest point ON the collider to the tip is the tip itself,
+        // the tip is inside (within a small epsilon).
+        Vector3 cp = skinMesh.ClosestPoint(KnifeTip.position);
+        return (cp - KnifeTip.position).sqrMagnitude < 1e-10f;
+    }
+
+    // Approximate penetration depth along the skin's normal:
+    float TipDepthApprox()
+    {
+        if (!KnifeTip || !skinMesh) return 0f;
+
+        Vector3 tip = KnifeTip.position;
+        Vector3 cp = skinMesh.ClosestPoint(tip);
+
+        // outside ⇒ ClosestPoint != tip
+        bool inside = (cp - tip).sqrMagnitude < 1e-12f;
+        if (!inside) return 0f;
+
+        // inside ⇒ use plane for a cheap magnitude (works well if your skin surface is locally planar)
+        return Mathf.Max(0f, -SignedToPlane());
+    }
+
 
     void OnDisable() => ClosePort();
     void OnApplicationQuit() => ClosePort();
